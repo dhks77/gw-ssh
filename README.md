@@ -47,7 +47,19 @@ npm run build
 
 #### Claude Code (CLI)
 
-프로젝트 루트에 `.mcp.json` 파일 생성:
+CLI 명령어로 등록:
+
+```bash
+# 프로젝트 단위 (해당 프로젝트에서만 사용)
+claude mcp add --scope project nhn-server -e CONFIG_FILE=/path/to/config.json -e DEBUG=false -- node /path/to/nhn-server-mcp/dist/index.js
+
+# 글로벌 (모든 프로젝트에서 사용)
+claude mcp add --scope user nhn-server -e CONFIG_FILE=/path/to/config.json -e DEBUG=false -- node /path/to/nhn-server-mcp/dist/index.js
+```
+
+또는 직접 설정 파일을 편집할 수도 있습니다.
+
+**프로젝트 단위** — 프로젝트 루트에 `.mcp.json` 생성:
 
 ```json
 {
@@ -64,7 +76,7 @@ npm run build
 }
 ```
 
-또는 글로벌로 설정하려면 `~/.claude/settings.json`에 추가:
+**글로벌** — `~/.claude.json`에 추가:
 
 ```json
 {
@@ -83,7 +95,7 @@ npm run build
 
 > **`.mcp.json`** — 해당 프로젝트에서만 사용. git에 커밋하면 팀원과 공유 가능 (단, `config.json` 경로가 각자 다를 수 있으므로 주의)
 >
-> **`~/.claude/settings.json`** — 모든 프로젝트에서 사용. 개인 환경 설정용
+> **`~/.claude.json`** — 모든 프로젝트에서 사용. 개인 환경 설정용
 
 #### Claude Desktop
 
