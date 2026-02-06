@@ -8,12 +8,6 @@ export interface GatewayConfig {
   password: string;
 }
 
-// 명령어 설정
-export interface CommandConfig {
-  allowedCommands: string[];
-  blockedPatterns: string[]; // 차단할 패턴 목록
-}
-
 // Kerberos 설정
 export interface KerberosConfig {
   password: string;
@@ -29,13 +23,18 @@ export interface ServerInfo {
   [key: string]: unknown;
 }
 
+// UI 설정
+export interface UIConfig {
+  confirmDialog: boolean; // 명령 실행 전 다이얼로그 확인
+}
+
 // 전체 설정
 export interface Config {
   gateway: GatewayConfig;
   kerberos: KerberosConfig;
   hosts: HostConfig;
-  commands: CommandConfig;
   serverInfo: ServerInfo;
+  ui: UIConfig;
 }
 
 // CONFIG_FILE 로드
@@ -92,48 +91,17 @@ function parseHostConfig(configFile: Record<string, unknown>): HostConfig {
   };
 }
 
-// 명령어 설정 파싱
-function parseCommandConfig(configFile: Record<string, unknown>): CommandConfig {
-  const defaultAllowed = [
-    "tail", "head", "cat", "grep", "less", "more", "zcat", "zgrep",
-    "ls", "pwd", "whoami", "hostname", "uptime",
-    "df", "du", "free", "top", "ps", "htop",
-    "netstat", "ss", "ping", "curl", "wget",
-    "date", "wc", "sort", "uniq", "awk", "sed", "cut",
-    "find", "which", "echo", "journalctl",
-    "systemctl status", "docker ps", "docker logs",
-  ];
-
-  // 기본 차단 패턴 (보안)
-  const defaultBlockedPatterns = [
-    ">",      // 리다이렉션
-    "`",      // 백틱
-    "$(",     // 서브쉘
-    ";",      // 명령어 체이닝
-    "&&",     // AND 체이닝
-    "||",     // OR 체이닝
-  ];
-
-  let allowedCommands: string[] = defaultAllowed;
-  if (Array.isArray(configFile.allowedCommands)) {
-    allowedCommands = configFile.allowedCommands as string[];
-  }
-
-  let blockedPatterns: string[] = defaultBlockedPatterns;
-  if (Array.isArray(configFile.blockedPatterns)) {
-    blockedPatterns = configFile.blockedPatterns as string[];
-  }
-
-  return {
-    allowedCommands,
-    blockedPatterns,
-  };
-}
-
 // serverInfo 파싱 (AI에게 노출되는 정보)
 function parseServerInfo(configFile: Record<string, unknown>): ServerInfo {
   const serverInfo = configFile.serverInfo as Record<string, unknown> | undefined;
   return serverInfo || {};
+}
+
+// UI 설정 파싱
+function parseUIConfig(configFile: Record<string, unknown>): UIConfig {
+  return {
+    confirmDialog: (configFile.confirmDialog as boolean) ?? true, // 기본값: true
+  };
 }
 
 // 전체 설정 로드
@@ -144,8 +112,8 @@ export function loadConfig(): Config {
     gateway: parseGatewayConfig(configFile),
     kerberos: parseKerberosConfig(configFile),
     hosts: parseHostConfig(configFile),
-    commands: parseCommandConfig(configFile),
     serverInfo: parseServerInfo(configFile),
+    ui: parseUIConfig(configFile),
   };
 }
 

@@ -2,11 +2,11 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { config, reloadConfig } from "../config.js";
 
 export function registerConfigTools(server: McpServer): void {
-  // 설정 조회 Tool (AI가 로그 경로, 허용 명령어 등 확인용)
+  // 설정 조회 Tool (AI가 로그 경로, 허용 호스트 등 확인용)
   server.registerTool(
     "get_config",
     {
-      description: "서버 설정 정보를 조회합니다. 허용된 호스트, 명령어, 서버 정보 등을 확인할 수 있습니다.",
+      description: "서버 설정 정보를 조회합니다. 허용된 호스트, 서버 정보 등을 확인할 수 있습니다.",
     },
     async () => {
       return {
@@ -18,7 +18,6 @@ export function registerConfigTools(server: McpServer): void {
                 allowedHosts: config.hosts.allowedHosts.length > 0
                   ? config.hosts.allowedHosts
                   : "(제한 없음 - 모든 호스트 허용)",
-                allowedCommands: config.commands.allowedCommands,
                 serverInfo: config.serverInfo
               },
               null,
