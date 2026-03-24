@@ -151,7 +151,9 @@ export async function executeCommand(host: string, user: string, command: string
   resetSessionTimeout();
 
   // Gateway에서 ssh로 target 서버에 명령 실행
-  const sshCommand = `ssh -o StrictHostKeyChecking=no -o BatchMode=yes ${user}@${host} ${JSON.stringify(command)}`;
+  // Base64 인코딩으로 따옴표/특수문자 이슈 원천 방지
+  const encoded = Buffer.from(command).toString('base64');
+  const sshCommand = `ssh -o StrictHostKeyChecking=no -o BatchMode=yes ${user}@${host} "echo ${encoded} | base64 --decode | bash"`;
 
   if (process.env.DEBUG === "true") {
     console.error(`[DEBUG] 실행: ${sshCommand}`);
