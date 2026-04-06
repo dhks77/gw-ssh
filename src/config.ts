@@ -1,4 +1,4 @@
-import { readFileSync } from "fs";
+import { readFileSync } from "node:fs";
 
 // Gateway SSH 설정
 export interface GatewayConfig {
@@ -117,10 +117,14 @@ export function loadConfig(): Config {
   };
 }
 
-export let config = loadConfig();
+let _config = loadConfig();
+
+export const config = new Proxy({} as Config, {
+  get: (_target, prop) => Reflect.get(_config, prop),
+});
 
 // config 재로드
 export function reloadConfig(): void {
-  config = loadConfig();
+  _config = loadConfig();
   console.error("설정 재로드 완료");
 }
