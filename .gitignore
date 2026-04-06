@@ -15,6 +15,9 @@ config.json
 # Logs
 *.log
 
+# Reports
+sonar-report.txt
+
 # IDE
 .idea/
 .vscode/

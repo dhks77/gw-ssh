@@ -140,7 +140,7 @@ claude mcp add --scope user nhn-server -e CONFIG_FILE=/path/to/config.json -e DE
 ```json
 {
   "host": "server-hostname",
-  "user": "irteam",
+  "user": "appuser",
   "command": "tail -100 /var/log/app.log"
 }
 ```
