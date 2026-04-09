@@ -9,6 +9,8 @@ SSH Gateway를 통해 서버에 접속하고 명령어를 실행하는 MCP (Mode
 - macOS 네이티브 다이얼로그로 명령 실행 확인
 - "항상 허용" 옵션으로 동일 명령 자동 승인
 - 서버 정보 조회 (AI가 로그 경로 등 확인 가능)
+- Gateway 경유 SCP 파일 업로드/다운로드
+- 원격 명령어 타임아웃으로 프로세스 hang 방지
 - 설정 동적 리로드
 
 ## 설치
@@ -123,6 +125,7 @@ claude mcp add --scope user nhn-server -e CONFIG_FILE=/path/to/config.json -e DE
 | `allowedHosts` | 접속 허용 호스트 목록 | [] (모두 허용) |
 | `confirmDialog` | 명령 실행 전 확인 다이얼로그 표시 | true |
 | `serverInfo` | AI에게 노출할 서버 정보 | {} |
+| `commandTimeoutSec` | 원격 명령어 타임아웃 (초). GNU timeout으로 래핑 | 300 |
 
 ### 환경변수
 
@@ -166,6 +169,35 @@ Gateway 연결을 종료합니다.
 ### connection_status
 
 현재 연결 상태를 확인합니다.
+
+### scp_upload
+
+파일 내용을 서버에 업로드합니다. (Gateway 경유 SCP)
+
+```json
+{
+  "host": "server-hostname",
+  "user": "appuser",
+  "remotePath": "/path/to/remote/file.txt",
+  "content": "파일 내용"
+}
+```
+
+### scp_download
+
+서버에서 파일을 다운로드합니다. (Gateway 경유 SCP)
+
+```json
+{
+  "host": "server-hostname",
+  "user": "appuser",
+  "remotePath": "/path/to/remote/file.txt",
+  "localPath": "/path/to/local/file.txt"
+}
+```
+
+- `localPath` 지정 시 로컬 파일로 저장
+- `localPath` 미지정 시 파일 내용만 반환
 
 ## 보안
 
