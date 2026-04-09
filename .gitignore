@@ -11,6 +11,7 @@ config.json
 # Environment
 .env
 .env.*
+.envrc
 
 # Logs
 *.log

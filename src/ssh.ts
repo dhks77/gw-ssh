@@ -17,6 +17,9 @@ let isKinitDone = false;
 
 // 세션 타임아웃 (5분)
 const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
+
+// 명령어 타임아웃 (기본 300초) - 원격 서버에서 프로세스가 hang 되는 것을 방지
+const DEFAULT_COMMAND_TIMEOUT_SEC = 300;
 let sessionTimeoutId: NodeJS.Timeout | null = null;
 
 // 타임아웃 리셋
@@ -162,8 +165,10 @@ export async function executeCommand(host: string, user: string, command: string
 
   // Gateway에서 ssh로 target 서버에 명령 실행
   // Base64 인코딩으로 따옴표/특수문자 이슈 원천 방지
+  // timeout으로 감싸서 원격 프로세스 hang 방지 (SIGTERM → SIGKILL)
+  const timeoutSec = config.commandTimeoutSec ?? DEFAULT_COMMAND_TIMEOUT_SEC;
   const encoded = Buffer.from(command).toString('base64');
-  const sshCommand = `ssh -o StrictHostKeyChecking=no -o BatchMode=yes ${user}@${host} "echo ${encoded} | base64 --decode | bash"`;
+  const sshCommand = `ssh -o StrictHostKeyChecking=no -o BatchMode=yes ${user}@${host} "echo ${encoded} | base64 --decode | timeout -s TERM --kill-after=5 ${timeoutSec} bash"`;
 
   if (process.env.DEBUG === "true") {
     console.error(`[DEBUG] 실행: ${sshCommand}`);
