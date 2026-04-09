@@ -35,6 +35,7 @@ export interface Config {
   hosts: HostConfig;
   serverInfo: ServerInfo;
   ui: UIConfig;
+  commandTimeoutSec?: number; // 원격 명령어 타임아웃 (초), 기본 30초
 }
 
 // CONFIG_FILE 로드
@@ -114,6 +115,7 @@ export function loadConfig(): Config {
     hosts: parseHostConfig(configFile),
     serverInfo: parseServerInfo(configFile),
     ui: parseUIConfig(configFile),
+    commandTimeoutSec: configFile.commandTimeoutSec as number | undefined,
   };
 }
 
