@@ -1,29 +1,30 @@
 {
-  "name": "nhn-server-mcp",
-  "version": "1.0.0",
-  "description": "MCP server for connecting to backend server and viewing logs",
+  "name": "gw-ssh",
+  "version": "2.0.0",
+  "description": "SSH Gateway CLI - 원격 서버 명령 실행 및 파일 전송 도구",
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "nhn-server-mcp": "./dist/index.js"
+    "gw-ssh": "./dist/index.js"
   },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "tsc --watch",
     "lint": "eslint src/",
-    "sonar": "eslint src/"
+    "sonar": "eslint src/",
+    "test": "vitest run"
   },
   "keywords": [
-    "mcp",
-    "backend",
-    "logs"
+    "ssh",
+    "gateway",
+    "kerberos",
+    "cli"
   ],
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "ssh2": "^1.17.0",
-    "zod": "^3.22.0"
+    "commander": "^14.0.3",
+    "ssh2": "^1.17.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
@@ -32,6 +33,7 @@
     "@typescript-eslint/parser": "^8.58.0",
     "eslint": "^10.2.0",
     "eslint-plugin-sonarjs": "^4.0.2",
-    "typescript": "^5.0.0"
+    "typescript": "^5.0.0",
+    "vitest": "^4.1.4"
   }
 }

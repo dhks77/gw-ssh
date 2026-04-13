@@ -1,28 +1,26 @@
-# NHN Server MCP
+# gw-ssh
 
-SSH Gateway를 통해 서버에 접속하고 명령어를 실행하는 MCP (Model Context Protocol) 서버입니다.
+SSH Gateway를 경유하여 원격 서버에 명령을 실행하고 파일을 전송하는 CLI 도구입니다.
 
 ## 기능
 
-- SSH Gateway를 통한 서버 접속
-- Kerberos 인증 (kinit) 지원
-- macOS 네이티브 다이얼로그로 명령 실행 확인
-- "항상 허용" 옵션으로 동일 명령 자동 승인
-- 서버 정보 조회 (AI가 로그 경로 등 확인 가능)
+- SSH Gateway를 경유한 원격 서버 명령 실행 (실시간 스트리밍 출력)
 - Gateway 경유 SCP 파일 업로드/다운로드
+- Kerberos 인증 (kinit) 지원
 - 원격 명령어 타임아웃으로 프로세스 hang 방지
-- 설정 동적 리로드
+- 호스트 허용 목록으로 접속 제한
 
 ## 설치
 
 ```bash
 npm install
 npm run build
+npm link        # gw-ssh 명령어 글로벌 등록
 ```
 
 ## 설정
 
-### 1. config.json 생성
+### config.json 생성
 
 ```json
 {
@@ -30,102 +28,36 @@ npm run build
   "gatewayPassword": "your-password",
   "kinitPassword": "your-kerberos-password",
   "allowedHosts": ["server1", "server2"],
-  "confirmDialog": true,
+  "commandTimeoutSec": 300,
   "serverInfo": {
-    "서버에 대한 user 정보 필수": "exec 할때 user 를 같이 보냅니다.",
-    "나머지는": "원하는 내용으로",
-    "ex - logPaths": {
-      "app": "/var/log/app.log",
-      "nginx": "/var/log/nginx/access.log"
+    "user": "default-ssh-user",
+    "logPaths": {
+      "app": "/var/log/app"
     }
   }
 }
 ```
 
-### 2. 클라이언트 설정
-
-#### Claude Code (CLI)
-
-CLI 명령어로 등록:
+### 설정 파일 경로 지정
 
 ```bash
-# 프로젝트 단위 (해당 프로젝트에서만 사용)
-claude mcp add --scope project nhn-server -e CONFIG_FILE=/path/to/config.json -e DEBUG=false -- node /path/to/nhn-server-mcp/dist/index.js
+# 방법 1: 환경변수 (~/.zshrc 등에 추가)
+export CONFIG_FILE=/path/to/config.json
 
-# 글로벌 (모든 프로젝트에서 사용)
-claude mcp add --scope user nhn-server -e CONFIG_FILE=/path/to/config.json -e DEBUG=false -- node /path/to/nhn-server-mcp/dist/index.js
-```
-
-또는 직접 설정 파일을 편집할 수도 있습니다.
-
-**프로젝트 단위** — 프로젝트 루트에 `.mcp.json` 생성:
-
-```json
-{
-  "mcpServers": {
-    "nhn-server": {
-      "command": "node",
-      "args": ["/path/to/nhn-server-mcp/dist/index.js"],
-      "env": {
-        "CONFIG_FILE": "/path/to/config.json",
-        "DEBUG": "false"
-      }
-    }
-  }
-}
-```
-
-**글로벌** — `~/.claude.json`에 추가:
-
-```json
-{
-  "mcpServers": {
-    "nhn-server": {
-      "command": "node",
-      "args": ["/path/to/nhn-server-mcp/dist/index.js"],
-      "env": {
-        "CONFIG_FILE": "/path/to/config.json",
-        "DEBUG": "false"
-      }
-    }
-  }
-}
-```
-
-> **`.mcp.json`** — 해당 프로젝트에서만 사용. git에 커밋하면 팀원과 공유 가능 (단, `config.json` 경로가 각자 다를 수 있으므로 주의)
->
-> **`~/.claude.json`** — 모든 프로젝트에서 사용. 개인 환경 설정용
-
-#### Claude Desktop
-
-`~/Library/Application Support/Claude/claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "nhn-server": {
-      "command": "node",
-      "args": ["/path/to/nhn-server-mcp/dist/index.js"],
-      "env": {
-        "CONFIG_FILE": "/path/to/config.json",
-        "DEBUG": "false"
-      }
-    }
-  }
-}
+# 방법 2: --config 옵션
+gw-ssh -c /path/to/config.json <command>
 ```
 
 ## 설정 옵션
 
 | 키 | 설명 | 기본값 |
 |---|---|---|
-| `gatewayConnection` | Gateway SSH 연결 (user@host:port) | - |
-| `gatewayPassword` | Gateway SSH 비밀번호 | - |
-| `kinitPassword` | Kerberos 인증 비밀번호 | - |
+| `gatewayConnection` | Gateway SSH 연결 (user@host:port) | 필수 |
+| `gatewayPassword` | Gateway SSH 비밀번호 | 필수 |
+| `kinitPassword` | Kerberos 인증 비밀번호 (미설정 시 kinit 생략) | - |
 | `allowedHosts` | 접속 허용 호스트 목록 | [] (모두 허용) |
-| `confirmDialog` | 명령 실행 전 확인 다이얼로그 표시 | true |
-| `serverInfo` | AI에게 노출할 서버 정보 | {} |
 | `commandTimeoutSec` | 원격 명령어 타임아웃 (초). GNU timeout으로 래핑 | 300 |
+| `serverInfo` | 서버 메타 정보 (user, logPaths 등) | {} |
 
 ### 환경변수
 
@@ -134,78 +66,72 @@ claude mcp add --scope user nhn-server -e CONFIG_FILE=/path/to/config.json -e DE
 | `CONFIG_FILE` | config.json 파일 경로 |
 | `DEBUG` | 디버그 로그 활성화 (`true`/`false`) |
 
-## MCP 도구
+## 사용법
 
-### exec
+### 명령 실행
 
-서버에서 명령어를 실행합니다.
-
-```json
-{
-  "host": "server-hostname",
-  "user": "appuser",
-  "command": "tail -100 /var/log/app.log"
-}
+```bash
+gw-ssh exec <host> <command> [-u user]
 ```
 
-`confirmDialog`가 활성화되어 있으면 macOS 네이티브 다이얼로그가 표시됩니다:
+```bash
+# 서버 상태 확인
+gw-ssh exec server1 "hostname"
+gw-ssh exec server1 "uptime" -u appuser
 
-- **취소**: 명령 실행 안 함
-- **확인**: 이번만 실행
-- **항상 허용**: 실행 + 이후 같은 명령은 확인 없이 실행 (세션 종료 시 초기화)
-
-### get_config
-
-서버 설정 정보를 조회합니다. (허용 호스트, 서버 정보)
-
-### reload_config
-
-설정 파일을 다시 로드합니다.
-
-### disconnect_server
-
-Gateway 연결을 종료합니다.
-
-### connection_status
-
-현재 연결 상태를 확인합니다.
-
-### scp_upload
-
-파일 내용을 서버에 업로드합니다. (Gateway 경유 SCP)
-
-```json
-{
-  "host": "server-hostname",
-  "user": "appuser",
-  "remotePath": "/path/to/remote/file.txt",
-  "content": "파일 내용"
-}
+# 로그 조회
+gw-ssh exec server1 "tail -100 /var/log/app/app.log"
+gw-ssh exec server1 "grep ERROR /var/log/app/app.log | tail -20"
 ```
 
-### scp_download
+`-u`를 생략하면 `serverInfo.user` 값을 사용합니다.
 
-서버에서 파일을 다운로드합니다. (Gateway 경유 SCP)
+### 파일 업로드
 
-```json
-{
-  "host": "server-hostname",
-  "user": "appuser",
-  "remotePath": "/path/to/remote/file.txt",
-  "localPath": "/path/to/local/file.txt"
-}
+```bash
+gw-ssh upload <host> <remotePath> [options] [-u user]
 ```
 
-- `localPath` 지정 시 로컬 파일로 저장
-- `localPath` 미지정 시 파일 내용만 반환
+```bash
+# 텍스트 내용 직접 업로드
+gw-ssh upload server1 /tmp/hello.txt --content "hello world"
+
+# 로컬 파일 업로드
+gw-ssh upload server1 /tmp/config.yml --file ./local-config.yml
+```
+
+### 파일 다운로드
+
+```bash
+gw-ssh download <host> <remotePath> [options] [-u user]
+```
+
+```bash
+# 표준 출력으로 내용 확인
+gw-ssh download server1 /etc/hosts
+
+# 로컬 파일로 저장
+gw-ssh download server1 /etc/hosts -o ./downloaded-hosts.txt
+```
+
+### 설정 확인
+
+```bash
+gw-ssh config
+```
+
+### 연결 테스트
+
+```bash
+gw-ssh status
+```
 
 ## 보안
 
 - **config.json**에 민감한 정보(비밀번호)가 포함되므로 git에 커밋하지 마세요
-- `confirmDialog`로 명령 실행 전 사용자 확인을 받습니다
 - `allowedHosts`로 접속 가능한 서버를 제한합니다
-- 5분 비활성 시 자동 연결 종료
-- 예외 발생 시에도 세션 자동 정리
+- Base64 인코딩 + 셸 인젝션 방지 패턴으로 명령어 안전성 확보
+- 예외 발생 시에도 SSH 세션 자동 정리
 
 ## 라이선스
 

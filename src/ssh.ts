@@ -3,7 +3,6 @@ import type { SFTPWrapper } from "ssh2";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
 
-// 쉘 인젝션 방지: 경로/사용자명에 위험 문자 차단
 const UNSAFE_PATTERN = /[;`$()&|><\n\r]/;
 function validateShellArg(value: string, label: string): void {
   if (UNSAFE_PATTERN.test(value)) {
@@ -11,37 +10,11 @@ function validateShellArg(value: string, label: string): void {
   }
 }
 
-// Gateway 클라이언트 (재사용)
 let gatewayClient: Client | null = null;
 let isKinitDone = false;
 
-// 세션 타임아웃 (5분)
-const SESSION_TIMEOUT_MS = 5 * 60 * 1000;
-
-// 명령어 타임아웃 (기본 300초) - 원격 서버에서 프로세스가 hang 되는 것을 방지
 const DEFAULT_COMMAND_TIMEOUT_SEC = 300;
-let sessionTimeoutId: NodeJS.Timeout | null = null;
 
-// 타임아웃 리셋
-function resetSessionTimeout(): void {
-  if (sessionTimeoutId) {
-    clearTimeout(sessionTimeoutId);
-  }
-  sessionTimeoutId = setTimeout(() => {
-    console.error("세션 타임아웃 (5분 비활성) - 연결 종료");
-    disconnect();
-  }, SESSION_TIMEOUT_MS);
-}
-
-// 타임아웃 정리
-function clearSessionTimeout(): void {
-  if (sessionTimeoutId) {
-    clearTimeout(sessionTimeoutId);
-    sessionTimeoutId = null;
-  }
-}
-
-// 호스트 허용 여부 확인
 export function isHostAllowed(host: string): boolean {
   if (config.hosts.allowedHosts.length === 0) {
     return true;
@@ -49,7 +22,6 @@ export function isHostAllowed(host: string): boolean {
   return config.hosts.allowedHosts.includes(host);
 }
 
-// Gateway 연결
 function connectGateway(): Promise<Client> {
   return new Promise((resolve, reject) => {
     if (gatewayClient) {
@@ -62,7 +34,6 @@ function connectGateway(): Promise<Client> {
     conn
       .on("ready", () => {
         gatewayClient = conn;
-        console.error("Gateway 연결 성공");
         resolve(conn);
       })
       .on("error", (err) => {
@@ -71,7 +42,6 @@ function connectGateway(): Promise<Client> {
       .on("close", () => {
         gatewayClient = null;
         isKinitDone = false;
-        console.error("Gateway 연결 종료");
       })
       .connect({
         host: config.gateway.host,
@@ -133,7 +103,6 @@ function executeKinit(conn: Client): Promise<void> {
         .on("close", (code: number) => {
           if (code === 0) {
             isKinitDone = true;
-            console.error("kinit 인증 성공");
             resolve();
           } else {
             reject(new Error(`kinit 실패 (code: ${code}): ${output}`));
@@ -149,8 +118,13 @@ function executeKinit(conn: Client): Promise<void> {
   });
 }
 
-// 명령 실행 (host + user + command)
-export async function executeCommand(host: string, user: string, command: string): Promise<{ stdout: string; stderr: string }> {
+export async function executeCommandStream(
+  host: string,
+  user: string,
+  command: string,
+  onStdout: (data: string) => void,
+  onStderr: (data: string) => void,
+): Promise<number> {
   if (!isHostAllowed(host)) {
     throw new Error(`허용되지 않은 호스트: ${host}`);
   }
@@ -161,11 +135,6 @@ export async function executeCommand(host: string, user: string, command: string
     await executeKinit(conn);
   }
 
-  resetSessionTimeout();
-
-  // Gateway에서 ssh로 target 서버에 명령 실행
-  // Base64 인코딩으로 따옴표/특수문자 이슈 원천 방지
-  // timeout으로 감싸서 원격 프로세스 hang 방지 (SIGTERM → SIGKILL)
   const timeoutSec = config.commandTimeoutSec ?? DEFAULT_COMMAND_TIMEOUT_SEC;
   const encoded = Buffer.from(command).toString('base64');
   const sshCommand = `ssh -o StrictHostKeyChecking=no -o BatchMode=yes ${user}@${host} "echo ${encoded} | base64 --decode | timeout -s TERM --kill-after=5 ${timeoutSec} bash"`;
@@ -174,18 +143,27 @@ export async function executeCommand(host: string, user: string, command: string
     console.error(`[DEBUG] 실행: ${sshCommand}`);
   }
 
-  const result = await execOnGateway(conn, sshCommand);
+  return new Promise((resolve, reject) => {
+    conn.exec(sshCommand, (err, stream) => {
+      if (err) {
+        reject(err);
+        return;
+      }
 
-  if (process.env.DEBUG === "true") {
-    console.error(`[DEBUG] stdout: ${result.stdout}`);
-    console.error(`[DEBUG] stderr: ${result.stderr}`);
-    console.error(`[DEBUG] code: ${result.code}`);
-  }
-
-  return { stdout: result.stdout, stderr: result.stderr };
+      stream
+        .on("close", (code: number) => {
+          resolve(code || 0);
+        })
+        .on("data", (data: Buffer) => {
+          onStdout(data.toString());
+        })
+        .stderr.on("data", (data: Buffer) => {
+          onStderr(data.toString());
+        });
+    });
+  });
 }
 
-// Gateway SFTP 세션 생성
 function getGatewaySftp(conn: Client): Promise<SFTPWrapper> {
   return new Promise((resolve, reject) => {
     conn.sftp((err, sftp) => {
@@ -216,7 +194,6 @@ function sftpReadFile(sftp: SFTPWrapper, remotePath: string): Promise<string> {
   });
 }
 
-// 파일 업로드: content -> Gateway 임시파일 -> scp -> target 서버
 export async function uploadFile(
   host: string,
   user: string,
@@ -236,9 +213,7 @@ export async function uploadFile(
     await executeKinit(conn);
   }
 
-  resetSessionTimeout();
-
-  const tempFile = `/tmp/mcp-upload-${Date.now()}-${randomUUID()}`;
+  const tempFile = `/tmp/gw-ssh-upload-${Date.now()}-${randomUUID()}`;
 
   try {
     // 1. Gateway에 임시파일 쓰기 (SFTP)
@@ -265,7 +240,6 @@ export async function uploadFile(
   }
 }
 
-// 파일 다운로드: target 서버 -> scp -> Gateway 임시파일 -> 읽기
 export async function downloadFile(
   host: string,
   user: string,
@@ -284,9 +258,7 @@ export async function downloadFile(
     await executeKinit(conn);
   }
 
-  resetSessionTimeout();
-
-  const tempFile = `/tmp/mcp-download-${Date.now()}-${randomUUID()}`;
+  const tempFile = `/tmp/gw-ssh-download-${Date.now()}-${randomUUID()}`;
 
   try {
     // 1. Target 서버 -> Gateway로 scp
@@ -313,10 +285,24 @@ export async function downloadFile(
   }
 }
 
-// 연결 종료
-export function disconnect(): void {
-  clearSessionTimeout();
+export async function testConnection(): Promise<{ gateway: boolean; kerberos: boolean }> {
+  const conn = await connectGateway();
+  let kerberos = false;
 
+  if (config.kerberos.password) {
+    await executeKinit(conn);
+    kerberos = true;
+  }
+
+  const { stdout } = await execOnGateway(conn, "echo ok");
+  if (stdout.trim() !== "ok") {
+    throw new Error(`Gateway 응답 이상: ${stdout.trim()}`);
+  }
+
+  return { gateway: true, kerberos };
+}
+
+export function disconnect(): void {
   if (gatewayClient) {
     gatewayClient.end();
     gatewayClient = null;
@@ -324,11 +310,3 @@ export function disconnect(): void {
   isKinitDone = false;
 }
 
-// 상태 확인 함수들
-export function isConnected(): boolean {
-  return gatewayClient !== null;
-}
-
-export function isAuthenticated(): boolean {
-  return isKinitDone;
-}

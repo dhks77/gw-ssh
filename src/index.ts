@@ -1,35 +1,30 @@
 #!/usr/bin/env node
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { config } from "./config.js";
-import { registerAllTools } from "./tools/index.js";
+import { Command } from "commander";
+import { setConfigPath } from "./config.js";
+import { registerExecCommand } from "./commands/exec.js";
+import { registerScpCommands } from "./commands/scp.js";
+import { registerConfigCommands } from "./commands/config.js";
 import { disconnect } from "./ssh.js";
 
-// MCP 서버 생성
-const server = new McpServer({
-  name: "nhn-server-mcp",
-  version: "1.0.0",
-});
+const program = new Command();
 
-// 모든 도구 등록
-registerAllTools(server);
+program
+  .name("gw-ssh")
+  .description("SSH Gateway를 경유하여 원격 서버에 명령을 실행하고 파일을 전송하는 CLI 도구")
+  .version("2.0.0")
+  .option("-c, --config <path>", "설정 파일 경로 (기본: CONFIG_FILE 환경변수)")
+  .hook("preAction", (thisCommand) => {
+    const configPath = thisCommand.opts().config;
+    if (configPath) {
+      setConfigPath(configPath);
+    }
+  });
 
-// 서버 시작
-async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+registerExecCommand(program);
+registerScpCommands(program);
+registerConfigCommands(program);
 
-  console.error("NHN Server MCP 시작됨");
-  console.error(`Gateway: ${config.gateway.username}@${config.gateway.host}:${config.gateway.port}`);
-  console.error(`허용 호스트: ${config.hosts.allowedHosts.length > 0 ? config.hosts.allowedHosts.join(", ") : "(제한 없음)"}`);
-  console.error(`확인 다이얼로그: ${config.ui.confirmDialog ? "활성화" : "비활성화"}`);
-  if (Object.keys(config.serverInfo).length > 0) {
-    console.error(`서버 정보 로드됨`);
-  }
-}
-
-// 종료 처리
 process.on("SIGINT", () => {
   disconnect();
   process.exit(0);
@@ -40,20 +35,16 @@ process.on("SIGTERM", () => {
   process.exit(0);
 });
 
-// 예외 처리 (크래시 시에도 세션 정리)
 process.on("uncaughtException", (error) => {
-  console.error("Uncaught Exception:", error);
+  console.error("오류:", error.message);
   disconnect();
   process.exit(1);
 });
 
 process.on("unhandledRejection", (reason) => {
-  console.error("Unhandled Rejection:", reason);
+  console.error("오류:", reason);
   disconnect();
   process.exit(1);
 });
 
-main().catch((error) => {
-  console.error("서버 시작 실패:", error);
-  process.exit(1);
-});
+program.parse();
