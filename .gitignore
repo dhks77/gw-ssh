@@ -13,6 +13,9 @@ config.json
 .env.*
 .envrc
 
+# Test (contains host/user info)
+test.config.json
+
 # Logs
 *.log
 
