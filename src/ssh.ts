@@ -2,6 +2,7 @@ import { Client } from "ssh2";
 import type { SFTPWrapper } from "ssh2";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
+import { runWithConcurrency } from "./parallel.js";
 
 const UNSAFE_PATTERN = /[;`$()&|><\n\r]/;
 function validateShellArg(value: string, label: string): void {
@@ -256,6 +257,71 @@ export async function uploadFile(
     return { stdout: result.stdout, stderr: result.stderr };
   } finally {
     // 3. Gateway 임시파일 삭제
+    await execOnGateway(conn, `rm -f ${tempFile}`).catch(() => {});
+  }
+}
+
+export interface MultiUploadResult {
+  host: string;
+  ok: boolean;
+  stderr?: string;
+  error?: string;
+}
+
+/**
+ * 여러 호스트에 같은 파일을 배포한다.
+ *
+ * 구조: 로컬→gateway SFTP **1회** 로 공용 임시파일 작성, gateway→target scp 만
+ * `runWithConcurrency` 로 병렬 발사. 호스트 수만큼 payload 가 WAN 을 타지 않아
+ * 로컬 대역폭 비용이 1/N 으로 amortize 된다.
+ */
+export async function uploadFileMulti(
+  hosts: string[],
+  user: string,
+  remotePath: string,
+  content: Buffer,
+  concurrency: number,
+): Promise<MultiUploadResult[]> {
+  for (const host of hosts) {
+    if (!isHostAllowed(host)) {
+      throw new Error(`허용되지 않은 호스트: ${host}`);
+    }
+  }
+  validateShellArg(user, "사용자명");
+  validateShellArg(remotePath, "원격 경로");
+
+  const conn = await connectGateway();
+
+  if (config.kerberos.password) {
+    await executeKinit(conn);
+  }
+
+  const tempFile = `/tmp/gw-ssh-upload-${Date.now()}-${randomUUID()}`;
+
+  try {
+    // 1. 로컬 → Gateway SFTP (1회)
+    const sftp = await getGatewaySftp(conn);
+    await sftpWriteFile(sftp, tempFile, content);
+
+    // 2. Gateway → Target scp (N 병렬)
+    return await runWithConcurrency<string, MultiUploadResult>(hosts, concurrency, async (host) => {
+      const scpCommand = `scp -o StrictHostKeyChecking=no -o BatchMode=yes ${tempFile} ${user}@${host}:${remotePath}`;
+      if (process.env.DEBUG === "true") {
+        console.error(`[DEBUG] SCP 업로드: ${scpCommand}`);
+      }
+      try {
+        const result = await execOnGateway(conn, scpCommand);
+        if (result.code !== 0) {
+          return { host, ok: false, error: `SCP 실패 (code: ${result.code}): ${result.stderr}` };
+        }
+        return { host, ok: true, stderr: result.stderr };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        return { host, ok: false, error: msg };
+      }
+    });
+  } finally {
+    // 3. Gateway 임시파일 1회 삭제
     await execOnGateway(conn, `rm -f ${tempFile}`).catch(() => {});
   }
 }

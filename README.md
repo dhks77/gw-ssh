@@ -128,6 +128,8 @@ gw-ssh upload server1 /tmp/app.tar.gz --file ./app.tar.gz
 gw-ssh upload server1,server2,server3 /tmp/app.tar.gz --file ./app.tar.gz
 ```
 
+다중 호스트 업로드 시 로컬→gateway 전송은 **1회**, gateway→각 target 은 병렬로 fan-out. 파일이 크거나 호스트 수가 많을수록 로컬 대역폭 절감 효과가 큼.
+
 ### 파일 다운로드
 
 ```bash

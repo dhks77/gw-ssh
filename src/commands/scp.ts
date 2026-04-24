@@ -1,7 +1,7 @@
 import { Command } from "commander";
 import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { uploadFile, downloadFile, isHostAllowed, disconnect } from "../ssh.js";
+import { uploadFile, uploadFileMulti, downloadFile, isHostAllowed, disconnect } from "../ssh.js";
 import { config } from "../config.js";
 import { runWithConcurrency } from "../parallel.js";
 
@@ -111,18 +111,18 @@ export function registerScpCommands(program: Command): void {
           return;
         }
 
+        // 병렬 모드: 로컬→gateway SFTP 는 1회만, gateway→target scp 만 fan-out
         const jobs = Math.max(1, Number(opts.jobs) || DEFAULT_JOBS);
-        const results = await runWithConcurrency<string, HostResult>(hosts, jobs, async (host) => {
-          try {
-            const { stderr } = await uploadFile(host, user, remotePath, content);
-            console.log(`[${host}] 업로드 완료 → ${remotePath}`);
-            if (stderr) process.stderr.write(stderr);
-            return { host, ok: true };
-          } catch (error) {
-            const msg = error instanceof Error ? error.message : String(error);
-            console.error(`[${host}] 업로드 실패: ${msg}`);
-            return { host, ok: false, error: msg };
+        const multi = await uploadFileMulti(hosts, user, remotePath, content, jobs);
+
+        const results: HostResult[] = multi.map((r) => {
+          if (r.ok) {
+            console.log(`[${r.host}] 업로드 완료 → ${remotePath}`);
+            if (r.stderr) process.stderr.write(r.stderr);
+          } else {
+            console.error(`[${r.host}] 업로드 실패: ${r.error}`);
           }
+          return { host: r.host, ok: r.ok, error: r.error };
         });
 
         const exitCode = reportSummary(results);

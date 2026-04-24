@@ -58,8 +58,9 @@ Gateway sshd 의 `MaxSessions` 기본값(10) 을 초과하면 channel 열기 실
 
 SCP 는 `ssh2` 의 SFTP + shell `scp` 조합:
 
-- **Upload**: 로컬 → SFTP 로 gateway `/tmp/` 에 임시 업로드 → gateway 에서 `scp tempFile user@target:remotePath` → 임시파일 삭제
-- **Download**: gateway 에서 `scp user@target:remotePath tempFile` → SFTP 로 로컬에 읽기 → 임시파일 삭제
+- **Upload (단일 호스트, `uploadFile`)**: 로컬 → SFTP 로 gateway `/tmp/` 에 임시 업로드 → gateway 에서 `scp tempFile user@target:remotePath` → 임시파일 삭제
+- **Upload (다중 호스트, `uploadFileMulti`)**: 로컬 → SFTP 로 gateway 에 **공용 임시파일 1회**만 업로드 → 호스트별로 `scp sharedTemp user@host_i:remotePath` 를 병렬 발사 → 마지막에 공용 임시파일 1회 삭제. payload 가 로컬→gateway 구간을 N번 타지 않도록 amortize.
+- **Download**: gateway 에서 `scp user@target:remotePath tempFile` → SFTP 로 로컬에 읽기 → 임시파일 삭제. 호스트별 파일 내용이 다르므로 공용 temp 재사용 불가 — 병렬 모드에서도 호스트별 독립 temp 가 생성됨.
 
 임시파일명은 `crypto.randomUUID()` 로 충돌 방지.
 
