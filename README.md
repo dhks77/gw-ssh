@@ -5,6 +5,7 @@ SSH Gateway를 경유하여 원격 서버에 명령을 실행하고 파일을 �
 ## 기능
 
 - SSH Gateway를 경유한 원격 서버 명령 실행 (실시간 스트리밍 출력)
+- 여러 호스트 병렬 실행 (Gateway 인증 1회 + 내부 fan-out)
 - Gateway 경유 SCP 파일 업로드/다운로드 (바이너리 무결성 보장)
 - Kerberos 인증 (kinit) 지원
 - 원격 명령어 타임아웃으로 프로세스 hang 방지
@@ -71,11 +72,11 @@ gw-ssh -c /path/to/config.json <command>
 ### 명령 실행
 
 ```bash
-gw-ssh exec <host> <command> [-u user]
+gw-ssh exec <host> <command> [-u user] [-j jobs] [--buffered]
 ```
 
 ```bash
-# 서버 상태 확인
+# 단일 호스트
 gw-ssh exec server1 "hostname"
 gw-ssh exec server1 "uptime" -u appuser
 
@@ -85,6 +86,30 @@ gw-ssh exec server1 "grep ERROR /var/log/app/app.log | tail -20"
 ```
 
 `-u`를 생략하면 `serverInfo.user` 값을 사용합니다.
+
+#### 여러 호스트 병렬 실행
+
+`<host>` 에 **쉼표로 구분한 CSV** 를 넘기면 자동으로 병렬 모드로 동작합니다. Gateway 인증/Kerberos ticket 은 1회만 수행되고, gateway→target 구간에서 fan-out 됩니다.
+
+```bash
+# 3개 호스트에서 동시에 실행 (기본 동시성 5)
+gw-ssh exec server1,server2,server3 "hostname && uptime"
+# [server1] server1
+# [server1]  15:02:31 up 42 days, ...
+# [server2] server2
+# [server2]  15:02:31 up 12 days, ...
+# [server3] server3
+# [server3]  15:02:31 up  7 days, ...
+# ✓ 3/3 성공
+
+# 동시성 제한 변경 (gateway 부하 고려해 3~10 권장)
+gw-ssh exec h1,h2,h3,h4,h5,h6,h7,h8 "uptime" -j 10
+
+# 호스트별로 출력을 모아 순서대로 표시 (스트리밍 대신 버퍼드 모드)
+gw-ssh exec h1,h2 "cat /etc/hostname" --buffered
+```
+
+일부 호스트만 실패하면 종료 코드 1 로 실패 요약이 stderr 에 출력됩니다.
 
 ### 파일 업로드
 

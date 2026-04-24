@@ -11,7 +11,9 @@ function validateShellArg(value: string, label: string): void {
 }
 
 let gatewayClient: Client | null = null;
+let gatewayClientPromise: Promise<Client> | null = null;
 let isKinitDone = false;
+let kinitPromise: Promise<void> | null = null;
 
 const DEFAULT_COMMAND_TIMEOUT_SEC = 300;
 
@@ -23,12 +25,10 @@ export function isHostAllowed(host: string): boolean {
 }
 
 function connectGateway(): Promise<Client> {
-  return new Promise((resolve, reject) => {
-    if (gatewayClient) {
-      resolve(gatewayClient);
-      return;
-    }
+  if (gatewayClient) return Promise.resolve(gatewayClient);
+  if (gatewayClientPromise) return gatewayClientPromise;
 
+  gatewayClientPromise = new Promise((resolve, reject) => {
     const conn = new Client();
 
     conn
@@ -37,11 +37,14 @@ function connectGateway(): Promise<Client> {
         resolve(conn);
       })
       .on("error", (err) => {
+        gatewayClientPromise = null;
         reject(new Error(`Gateway 연결 실패: ${err.message}`));
       })
       .on("close", () => {
         gatewayClient = null;
+        gatewayClientPromise = null;
         isKinitDone = false;
+        kinitPromise = null;
       })
       .connect({
         host: config.gateway.host,
@@ -50,6 +53,8 @@ function connectGateway(): Promise<Client> {
         password: config.gateway.password,
       });
   });
+
+  return gatewayClientPromise;
 }
 
 // Gateway에서 명령 실행
@@ -78,21 +83,16 @@ function execOnGateway(conn: Client, command: string): Promise<{ stdout: string;
   });
 }
 
-// kinit 실행
+// kinit 실행 (in-flight 중복 방지)
 function executeKinit(conn: Client): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (isKinitDone) {
-      resolve();
-      return;
-    }
+  if (isKinitDone) return Promise.resolve();
+  if (!config.kerberos.password) return Promise.resolve();
+  if (kinitPromise) return kinitPromise;
 
-    if (!config.kerberos.password) {
-      resolve();
-      return;
-    }
-
+  kinitPromise = new Promise((resolve, reject) => {
     conn.exec("kinit", { pty: true }, (err, stream) => {
       if (err) {
+        kinitPromise = null;
         reject(err);
         return;
       }
@@ -105,6 +105,7 @@ function executeKinit(conn: Client): Promise<void> {
             isKinitDone = true;
             resolve();
           } else {
+            kinitPromise = null;
             reject(new Error(`kinit 실패 (code: ${code}): ${output}`));
           }
         })
@@ -116,6 +117,8 @@ function executeKinit(conn: Client): Promise<void> {
         });
     });
   });
+
+  return kinitPromise;
 }
 
 export async function executeCommandStream(
@@ -306,6 +309,8 @@ export function disconnect(): void {
     gatewayClient.end();
     gatewayClient = null;
   }
+  gatewayClientPromise = null;
   isKinitDone = false;
+  kinitPromise = null;
 }
 
