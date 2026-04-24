@@ -39,16 +39,16 @@ export function registerScpCommands(program: Command): void {
       const user = resolveUser(opts);
       checkHost(host);
 
-      let content: string;
+      let content: Buffer;
       if (opts.file) {
         try {
-          content = readFileSync(opts.file, "utf-8");
+          content = readFileSync(opts.file);
         } catch {
           console.error(`로컬 파일 읽기 실패: ${opts.file}`);
           process.exit(1);
         }
-      } else if (opts.content) {
-        content = opts.content;
+      } else if (opts.content !== undefined) {
+        content = Buffer.from(opts.content, "utf-8");
       } else {
         console.error("--content 또는 --file 옵션이 필요합니다.");
         process.exit(1);

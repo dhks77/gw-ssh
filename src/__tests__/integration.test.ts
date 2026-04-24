@@ -1,6 +1,11 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { readFileSync, existsSync, unlinkSync } from "node:fs";
+import { readFileSync, existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createHash, randomBytes } from "node:crypto";
+
+function sha256(buf: Buffer): string {
+  return createHash("sha256").update(buf).digest("hex");
+}
 import { setConfigPath } from "../config.js";
 import { executeCommandStream, uploadFile, downloadFile, isHostAllowed, disconnect, testConnection } from "../ssh.js";
 
@@ -17,7 +22,12 @@ setConfigPath(resolve(import.meta.dirname, "../../config.json"));
 const { host, user } = testConfig;
 const remoteTestFile = `/tmp/gw-ssh-test-${Date.now()}`;
 
-afterAll(() => {
+afterAll(async () => {
+  try {
+    await executeCommandStream(host, user, `rm -f ${remoteTestFile}`, () => {}, () => {});
+  } catch {
+    // 정리 실패는 무시 (세션 이미 끊어진 경우 등)
+  }
   disconnect();
 });
 
@@ -79,20 +89,20 @@ describe("host 제한", () => {
 
 describe("scp", () => {
   it("upload (content)", async () => {
-    const { stderr } = await uploadFile(host, user, remoteTestFile, "gw-ssh test");
+    const { stderr } = await uploadFile(host, user, remoteTestFile, Buffer.from("gw-ssh test"));
     expect(stderr).not.toContain("error");
   });
 
   it("download (content)", async () => {
     const { content } = await downloadFile(host, user, remoteTestFile);
-    expect(content).toBe("gw-ssh test");
+    expect(Buffer.isBuffer(content)).toBe(true);
+    expect(content.toString("utf-8")).toBe("gw-ssh test");
   });
 
   it("download → 로컬 파일 저장", async () => {
     const localPath = `/tmp/gw-ssh-local-test-${Date.now()}`;
     try {
       const { content } = await downloadFile(host, user, remoteTestFile);
-      const { writeFileSync } = await import("node:fs");
       writeFileSync(localPath, content);
       expect(existsSync(localPath)).toBe(true);
       expect(readFileSync(localPath, "utf-8")).toBe("gw-ssh test");
@@ -101,7 +111,22 @@ describe("scp", () => {
     }
   });
 
-  it("정리: 원격 테스트 파일 삭제", async () => {
-    await executeCommandStream(host, user, `rm -f ${remoteTestFile}`, () => {}, () => {});
+  it("바이너리 round-trip (해시 일치)", async () => {
+    // 256KB 랜덤 바이너리 — >=0x80 바이트 다량 포함 보장
+    const original = randomBytes(256 * 1024);
+    const hashOriginal = sha256(original);
+    const binRemotePath = `${remoteTestFile}.bin`;
+
+    try {
+      await uploadFile(host, user, binRemotePath, original);
+      const { content } = await downloadFile(host, user, binRemotePath);
+
+      expect(content.length).toBe(original.length);
+      expect(sha256(content)).toBe(hashOriginal);
+      expect(content.equals(original)).toBe(true);
+    } finally {
+      await executeCommandStream(host, user, `rm -f ${binRemotePath}`, () => {}, () => {});
+    }
   });
+
 });

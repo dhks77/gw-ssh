@@ -173,24 +173,23 @@ function getGatewaySftp(conn: Client): Promise<SFTPWrapper> {
   });
 }
 
-// SFTP로 Gateway에 파일 쓰기
-function sftpWriteFile(sftp: SFTPWrapper, remotePath: string, content: string): Promise<void> {
+// SFTP로 Gateway에 파일 쓰기 (Buffer 안전)
+function sftpWriteFile(sftp: SFTPWrapper, remotePath: string, content: Buffer): Promise<void> {
   return new Promise((resolve, reject) => {
-    const stream = sftp.createWriteStream(remotePath);
-    stream.on("error", (err: Error) => reject(new Error(`SFTP 쓰기 실패: ${err.message}`)));
-    stream.on("close", () => resolve());
-    stream.end(content);
+    sftp.writeFile(remotePath, content, (err) => {
+      if (err) reject(new Error(`SFTP 쓰기 실패: ${err.message}`));
+      else resolve();
+    });
   });
 }
 
-// SFTP로 Gateway에서 파일 읽기
-function sftpReadFile(sftp: SFTPWrapper, remotePath: string): Promise<string> {
+// SFTP로 Gateway에서 파일 읽기 (Buffer 안전)
+function sftpReadFile(sftp: SFTPWrapper, remotePath: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
-    const stream = sftp.createReadStream(remotePath);
-    let data = "";
-    stream.on("data", (chunk: Buffer) => { data += chunk.toString(); });
-    stream.on("error", (err: Error) => reject(new Error(`SFTP 읽기 실패: ${err.message}`)));
-    stream.on("end", () => resolve(data));
+    sftp.readFile(remotePath, (err, data) => {
+      if (err) reject(new Error(`SFTP 읽기 실패: ${err.message}`));
+      else resolve(data);
+    });
   });
 }
 
@@ -198,7 +197,7 @@ export async function uploadFile(
   host: string,
   user: string,
   remotePath: string,
-  content: string
+  content: Buffer
 ): Promise<{ stdout: string; stderr: string }> {
   if (!isHostAllowed(host)) {
     throw new Error(`허용되지 않은 호스트: ${host}`);
@@ -244,7 +243,7 @@ export async function downloadFile(
   host: string,
   user: string,
   remotePath: string
-): Promise<{ content: string; stderr: string }> {
+): Promise<{ content: Buffer; stderr: string }> {
   if (!isHostAllowed(host)) {
     throw new Error(`허용되지 않은 호스트: ${host}`);
   }
