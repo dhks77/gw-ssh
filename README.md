@@ -5,7 +5,7 @@ SSH Gateway를 경유하여 원격 서버에 명령을 실행하고 파일을 �
 ## 기능
 
 - SSH Gateway를 경유한 원격 서버 명령 실행 (실시간 스트리밍 출력)
-- Gateway 경유 SCP 파일 업로드/다운로드
+- Gateway 경유 SCP 파일 업로드/다운로드 (바이너리 무결성 보장)
 - Kerberos 인증 (kinit) 지원
 - 원격 명령어 타임아웃으로 프로세스 hang 방지
 - 호스트 허용 목록으로 접속 제한
@@ -96,8 +96,8 @@ gw-ssh upload <host> <remotePath> [options] [-u user]
 # 텍스트 내용 직접 업로드
 gw-ssh upload server1 /tmp/hello.txt --content "hello world"
 
-# 로컬 파일 업로드
-gw-ssh upload server1 /tmp/config.yml --file ./local-config.yml
+# 로컬 파일 업로드 (바이너리 포함 - gzip, zip, 실행파일 등)
+gw-ssh upload server1 /tmp/app.tar.gz --file ./app.tar.gz
 ```
 
 ### 파일 다운로드
@@ -112,6 +112,9 @@ gw-ssh download server1 /etc/hosts
 
 # 로컬 파일로 저장
 gw-ssh download server1 /etc/hosts -o ./downloaded-hosts.txt
+
+# 바이너리 파일도 무결성 유지 (gzip, zip, 실행파일 등)
+gw-ssh download server1 /var/app/release.tar.gz -o ~/Downloads/release.tar.gz
 ```
 
 ### 설정 확인
