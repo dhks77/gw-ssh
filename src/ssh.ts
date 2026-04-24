@@ -215,50 +215,21 @@ function sftpReadFile(sftp: SFTPWrapper, remotePath: string): Promise<Buffer> {
   });
 }
 
+/**
+ * 단일 호스트 업로드. 실패 시 throw.
+ * 내부 구현은 {@link uploadFileMulti} 에 위임해 파이프라인 로직 중복을 제거.
+ */
 export async function uploadFile(
   host: string,
   user: string,
   remotePath: string,
-  content: Buffer
+  content: Buffer,
 ): Promise<{ stdout: string; stderr: string }> {
-  if (!isHostAllowed(host)) {
-    throw new Error(`허용되지 않은 호스트: ${host}`);
+  const [result] = await uploadFileMulti([host], user, remotePath, content, 1);
+  if (!result.ok) {
+    throw new Error(result.error ?? "SCP 업로드 실패");
   }
-
-  validateShellArg(user, "사용자명");
-  validateShellArg(remotePath, "원격 경로");
-
-  const conn = await connectGateway();
-
-  if (config.kerberos.password) {
-    await executeKinit(conn);
-  }
-
-  const tempFile = `/tmp/gw-ssh-upload-${Date.now()}-${randomUUID()}`;
-
-  try {
-    // 1. Gateway에 임시파일 쓰기 (SFTP)
-    const sftp = await getGatewaySftp(conn);
-    await sftpWriteFile(sftp, tempFile, content);
-
-    // 2. Gateway -> Target 서버로 scp
-    const scpCommand = `scp -o StrictHostKeyChecking=no -o BatchMode=yes ${tempFile} ${user}@${host}:${remotePath}`;
-
-    if (process.env.DEBUG === "true") {
-      console.error(`[DEBUG] SCP 업로드: ${scpCommand}`);
-    }
-
-    const result = await execOnGateway(conn, scpCommand);
-
-    if (result.code !== 0) {
-      throw new Error(`SCP 실패 (code: ${result.code}): ${result.stderr}`);
-    }
-
-    return { stdout: result.stdout, stderr: result.stderr };
-  } finally {
-    // 3. Gateway 임시파일 삭제
-    await execOnGateway(conn, `rm -f ${tempFile}`).catch(() => {});
-  }
+  return { stdout: "", stderr: result.stderr ?? "" };
 }
 
 export interface MultiUploadResult {
