@@ -14,6 +14,8 @@ let gatewayClient: Client | null = null;
 let gatewayClientPromise: Promise<Client> | null = null;
 let isKinitDone = false;
 let kinitPromise: Promise<void> | null = null;
+let gatewaySftp: SFTPWrapper | null = null;
+let gatewaySftpPromise: Promise<SFTPWrapper> | null = null;
 
 const DEFAULT_COMMAND_TIMEOUT_SEC = 300;
 
@@ -43,6 +45,8 @@ function connectGateway(): Promise<Client> {
       .on("close", () => {
         gatewayClient = null;
         gatewayClientPromise = null;
+        gatewaySftp = null;
+        gatewaySftpPromise = null;
         isKinitDone = false;
         kinitPromise = null;
       })
@@ -168,12 +172,26 @@ export async function executeCommandStream(
 }
 
 function getGatewaySftp(conn: Client): Promise<SFTPWrapper> {
-  return new Promise((resolve, reject) => {
+  if (gatewaySftp) return Promise.resolve(gatewaySftp);
+  if (gatewaySftpPromise) return gatewaySftpPromise;
+
+  gatewaySftpPromise = new Promise((resolve, reject) => {
     conn.sftp((err, sftp) => {
-      if (err) reject(new Error(`SFTP 세션 생성 실패: ${err.message}`));
-      else resolve(sftp);
+      if (err) {
+        gatewaySftpPromise = null;
+        reject(new Error(`SFTP 세션 생성 실패: ${err.message}`));
+        return;
+      }
+      gatewaySftp = sftp;
+      sftp.on("close", () => {
+        gatewaySftp = null;
+        gatewaySftpPromise = null;
+      });
+      resolve(sftp);
     });
   });
+
+  return gatewaySftpPromise;
 }
 
 // SFTP로 Gateway에 파일 쓰기 (Buffer 안전)
@@ -310,6 +328,8 @@ export function disconnect(): void {
     gatewayClient = null;
   }
   gatewayClientPromise = null;
+  gatewaySftp = null;
+  gatewaySftpPromise = null;
   isKinitDone = false;
   kinitPromise = null;
 }

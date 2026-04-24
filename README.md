@@ -114,7 +114,7 @@ gw-ssh exec h1,h2 "cat /etc/hostname" --buffered
 ### 파일 업로드
 
 ```bash
-gw-ssh upload <host> <remotePath> [options] [-u user]
+gw-ssh upload <host> <remotePath> [options] [-u user] [-j jobs]
 ```
 
 ```bash
@@ -123,12 +123,15 @@ gw-ssh upload server1 /tmp/hello.txt --content "hello world"
 
 # 로컬 파일 업로드 (바이너리 포함 - gzip, zip, 실행파일 등)
 gw-ssh upload server1 /tmp/app.tar.gz --file ./app.tar.gz
+
+# 여러 호스트에 같은 파일 동시 배포 (CSV 지정 시 병렬 모드)
+gw-ssh upload server1,server2,server3 /tmp/app.tar.gz --file ./app.tar.gz
 ```
 
 ### 파일 다운로드
 
 ```bash
-gw-ssh download <host> <remotePath> [options] [-u user]
+gw-ssh download <host> <remotePath> [options] [-u user] [-j jobs]
 ```
 
 ```bash
@@ -140,7 +143,14 @@ gw-ssh download server1 /etc/hosts -o ./downloaded-hosts.txt
 
 # 바이너리 파일도 무결성 유지 (gzip, zip, 실행파일 등)
 gw-ssh download server1 /var/app/release.tar.gz -o ~/Downloads/release.tar.gz
+
+# 여러 호스트에서 동시에 다운로드 — -o 에 디렉토리 지정, 파일명 앞에 호스트 접두
+gw-ssh download server1,server2 /var/log/app.log -o ~/Downloads/
+# → ~/Downloads/server1-app.log
+# → ~/Downloads/server2-app.log
 ```
+
+`-o` 는 단일 호스트일 때 파일 경로, 다중 호스트일 때 **이미 존재하는 디렉토리** 경로여야 합니다.
 
 ### 설정 확인
 

@@ -160,3 +160,58 @@ describe.skipIf(hosts.length < 2)("parallel exec", () => {
     expect(results.every((c) => c === 0)).toBe(true);
   });
 });
+
+describe.skipIf(hosts.length < 2)("parallel scp", () => {
+  it("여러 호스트에 같은 파일을 병렬 업로드 후 각 호스트에서 확인한다", async () => {
+    const { runWithConcurrency } = await import("../parallel.js");
+    const payload = Buffer.from(`parallel-scp-${Date.now()}`);
+    const remote = `/tmp/gw-ssh-parallel-upload-${Date.now()}`;
+
+    try {
+      const uploads = await runWithConcurrency(hosts, 5, async (h) => {
+        await uploadFile(h, user, remote, payload);
+        return h;
+      });
+      expect(uploads).toEqual(hosts);
+
+      // 각 호스트에 실제로 올라갔는지 확인
+      const verifications = await runWithConcurrency(hosts, 5, async (h) => {
+        let out = "";
+        await executeCommandStream(h, user, `cat ${remote}`, (d) => { out += d; }, () => {});
+        return { host: h, content: out };
+      });
+      for (const v of verifications) {
+        expect(v.content).toBe(payload.toString("utf-8"));
+      }
+    } finally {
+      await runWithConcurrency(hosts, 5, async (h) => {
+        await executeCommandStream(h, user, `rm -f ${remote}`, () => {}, () => {});
+      });
+    }
+  });
+
+  it("여러 호스트에서 병렬 다운로드 시 호스트별 내용을 구분해 수신한다", async () => {
+    const { runWithConcurrency } = await import("../parallel.js");
+    const remote = `/tmp/gw-ssh-parallel-download-${Date.now()}`;
+
+    try {
+      // 호스트별로 서로 다른 내용을 남겨둠
+      await runWithConcurrency(hosts, 5, async (h) => {
+        await uploadFile(h, user, remote, Buffer.from(`hello from ${h}`));
+      });
+
+      const downloads = await runWithConcurrency(hosts, 5, async (h) => {
+        const { content } = await downloadFile(h, user, remote);
+        return { host: h, content: content.toString("utf-8") };
+      });
+
+      for (const d of downloads) {
+        expect(d.content).toBe(`hello from ${d.host}`);
+      }
+    } finally {
+      await runWithConcurrency(hosts, 5, async (h) => {
+        await executeCommandStream(h, user, `rm -f ${remote}`, () => {}, () => {});
+      });
+    }
+  });
+});
