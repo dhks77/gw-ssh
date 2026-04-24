@@ -1,0 +1,30 @@
+{
+  "_comment": "이 파일은 템플릿입니다. 복사해서 .claude/patterns.json 에 실제 회사/팀 패턴을 적어주세요. patterns.json 은 gitignored 입니다.",
+  "_usage": "cp .claude/patterns.example.json .claude/patterns.json 후 regex 값을 자기 조직의 실제 값으로 교체.",
+  "patterns": [
+    {
+      "regex": "@your-company\\.example",
+      "description": "사내 이메일 도메인"
+    },
+    {
+      "regex": "your-team-name",
+      "description": "팀명/부서명"
+    },
+    {
+      "regex": "your-internal\\.example\\.com",
+      "description": "사내 전용 URL/도메인"
+    },
+    {
+      "regex": "\\binternal-[a-z0-9-]+\\b",
+      "description": "내부 호스트 접두사"
+    },
+    {
+      "regex": "your-real-name",
+      "description": "개인 실명 (한글/영문)"
+    },
+    {
+      "regex": "your-account-id",
+      "description": "사내 전용 계정/UID"
+    }
+  ]
+}

@@ -134,3 +134,8 @@ npm test    # vitest run
 
 - `DEBUG=true gw-ssh ...` 로 실행된 원격 명령 / SCP 명령을 stderr 로 확인 가능 (`src/ssh.ts` 의 `process.env.DEBUG === "true"` 게이트)
 - `gw-ssh status` 로 gateway 연결 + Kerberos 인증만 분리 테스트 가능
+
+## 개발 규칙
+
+@.claude/rules/readme-update.md
+@.claude/rules/no-identifying-info.md
