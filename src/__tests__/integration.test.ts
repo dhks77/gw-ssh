@@ -14,12 +14,14 @@ const testConfigPath = resolve(import.meta.dirname, "../../test.config.json");
 const testConfig = JSON.parse(readFileSync(testConfigPath, "utf-8")) as {
   host: string;
   user: string;
+  hosts?: string[];
 };
 
 // 메인 config.json 경로 설정
 setConfigPath(resolve(import.meta.dirname, "../../config.json"));
 
 const { host, user } = testConfig;
+const hosts = testConfig.hosts ?? [];
 const remoteTestFile = `/tmp/gw-ssh-test-${Date.now()}`;
 
 afterAll(async () => {
@@ -129,4 +131,32 @@ describe("scp", () => {
     }
   });
 
+});
+
+describe.skipIf(hosts.length < 2)("parallel exec", () => {
+  it("여러 호스트에서 병렬로 명령을 실행한다", async () => {
+    const { runWithConcurrency } = await import("../parallel.js");
+
+    const results = await runWithConcurrency(hosts, 5, async (h) => {
+      let stdout = "";
+      const code = await executeCommandStream(h, user, "hostname", (d) => { stdout += d; }, () => {});
+      return { host: h, stdout: stdout.trim(), code };
+    });
+
+    expect(results).toHaveLength(hosts.length);
+    for (const r of results) {
+      expect(r.code).toBe(0);
+      expect(r.stdout).toBe(r.host);
+    }
+  });
+
+  it("kinit 은 병렬 호출에서도 1회만 수행된다 (race 방지)", async () => {
+    // 모든 호스트에 동시에 exec 를 쏴도 connectGateway / kinit 이 한 번씩만 수행되어야 함.
+    // kinit 실패가 없으면 in-flight promise 공유가 제대로 동작.
+    const { runWithConcurrency } = await import("../parallel.js");
+    const results = await runWithConcurrency(hosts, hosts.length, async (h) => {
+      return executeCommandStream(h, user, "echo ok", () => {}, () => {});
+    });
+    expect(results.every((c) => c === 0)).toBe(true);
+  });
 });
