@@ -1,21 +1,14 @@
 import { Command } from "commander";
 import { readFileSync, writeFileSync, existsSync, statSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { uploadFile, uploadFileMulti, downloadFile, isHostAllowed, disconnect } from "../ssh.js";
-import { config } from "../config.js";
+import { uploadFile, uploadFileMulti, downloadFile, disconnect } from "../ssh.js";
 import { runWithConcurrency } from "../parallel.js";
-
-const DEFAULT_JOBS = 5;
+import { DEFAULT_JOBS, parseHosts, assertHostsAllowed, resolveUser } from "./common.js";
 
 interface HostResult {
   host: string;
   ok: boolean;
   error?: string;
-  destination?: string;
-}
-
-function parseHosts(raw: string): string[] {
-  return raw.split(",").map((h) => h.trim()).filter((h) => h.length > 0);
 }
 
 function validateLocalDir(dirPath: string): void {
@@ -31,25 +24,6 @@ function validateLocalPath(localPath: string): void {
   const resolved = resolve(localPath);
   if (!existsSync(dirname(resolved))) {
     throw new Error(`디렉토리가 존재하지 않습니다: ${dirname(resolved)}`);
-  }
-}
-
-function resolveUser(opts: { user?: string }): string {
-  const user = opts.user || (config.serverInfo.user as string);
-  if (!user) {
-    console.error("사용자명이 필요합니다. -u 옵션 또는 config.json의 serverInfo.user를 설정하세요.");
-    process.exit(1);
-  }
-  return user;
-}
-
-function assertHostsAllowed(hosts: string[]): void {
-  for (const host of hosts) {
-    if (!isHostAllowed(host)) {
-      const allowedList = config.hosts.allowedHosts.join(", ") || "(제한 없음)";
-      console.error(`허용되지 않은 호스트: ${host}\n허용된 호스트: ${allowedList}`);
-      process.exit(1);
-    }
   }
 }
 
@@ -111,7 +85,6 @@ export function registerScpCommands(program: Command): void {
           return;
         }
 
-        // 병렬 모드: 로컬→gateway SFTP 는 1회만, gateway→target scp 만 fan-out
         const jobs = Math.max(1, Number(opts.jobs) || DEFAULT_JOBS);
         const multi = await uploadFileMulti(hosts, user, remotePath, content, jobs);
 
@@ -168,7 +141,6 @@ export function registerScpCommands(program: Command): void {
           return;
         }
 
-        // 병렬 모드: 저장 디렉토리 필수
         if (!opts.output) {
           console.error("다중 호스트 다운로드는 -o/--output 에 저장 디렉토리를 지정해야 합니다.");
           process.exit(1);
@@ -190,7 +162,7 @@ export function registerScpCommands(program: Command): void {
             writeFileSync(localPath, content);
             console.log(`[${host}] 다운로드 완료 → ${localPath}`);
             if (stderr) process.stderr.write(stderr);
-            return { host, ok: true, destination: localPath };
+            return { host, ok: true };
           } catch (error) {
             const msg = error instanceof Error ? error.message : String(error);
             console.error(`[${host}] 다운로드 실패: ${msg}`);

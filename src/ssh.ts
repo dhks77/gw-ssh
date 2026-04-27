@@ -172,6 +172,7 @@ export async function executeCommandStream(
   });
 }
 
+/** conn 은 현재 싱글톤 gatewayClient 여야 함. 다른 인스턴스 전달 시 cache 가 stale 해짐. */
 function getGatewaySftp(conn: Client): Promise<SFTPWrapper> {
   if (gatewaySftp) return Promise.resolve(gatewaySftp);
   if (gatewaySftpPromise) return gatewaySftpPromise;
@@ -224,12 +225,12 @@ export async function uploadFile(
   user: string,
   remotePath: string,
   content: Buffer,
-): Promise<{ stdout: string; stderr: string }> {
+): Promise<{ stderr: string }> {
   const [result] = await uploadFileMulti([host], user, remotePath, content, 1);
   if (!result.ok) {
     throw new Error(result.error ?? "SCP 업로드 실패");
   }
-  return { stdout: "", stderr: result.stderr ?? "" };
+  return { stderr: result.stderr ?? "" };
 }
 
 export interface MultiUploadResult {
@@ -270,11 +271,9 @@ export async function uploadFileMulti(
   const tempFile = `/tmp/gw-ssh-upload-${Date.now()}-${randomUUID()}`;
 
   try {
-    // 1. 로컬 → Gateway SFTP (1회)
     const sftp = await getGatewaySftp(conn);
     await sftpWriteFile(sftp, tempFile, content);
 
-    // 2. Gateway → Target scp (N 병렬)
     return await runWithConcurrency<string, MultiUploadResult>(hosts, concurrency, async (host) => {
       const scpCommand = `scp -o StrictHostKeyChecking=no -o BatchMode=yes ${tempFile} ${user}@${host}:${remotePath}`;
       if (process.env.DEBUG === "true") {
@@ -292,7 +291,6 @@ export async function uploadFileMulti(
       }
     });
   } finally {
-    // 3. Gateway 임시파일 1회 삭제
     await execOnGateway(conn, `rm -f ${tempFile}`).catch(() => {});
   }
 }
@@ -318,7 +316,6 @@ export async function downloadFile(
   const tempFile = `/tmp/gw-ssh-download-${Date.now()}-${randomUUID()}`;
 
   try {
-    // 1. Target 서버 -> Gateway로 scp
     const scpCommand = `scp -o StrictHostKeyChecking=no -o BatchMode=yes ${user}@${host}:${remotePath} ${tempFile}`;
 
     if (process.env.DEBUG === "true") {
@@ -331,13 +328,11 @@ export async function downloadFile(
       throw new Error(`SCP 실패 (code: ${result.code}): ${result.stderr}`);
     }
 
-    // 2. Gateway 임시파일 읽기 (SFTP)
     const sftp = await getGatewaySftp(conn);
     const content = await sftpReadFile(sftp, tempFile);
 
     return { content, stderr: result.stderr };
   } finally {
-    // 3. Gateway 임시파일 삭제
     await execOnGateway(conn, `rm -f ${tempFile}`).catch(() => {});
   }
 }
