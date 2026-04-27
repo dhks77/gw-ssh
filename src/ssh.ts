@@ -2,6 +2,7 @@ import { Client } from "ssh2";
 import type { SFTPWrapper } from "ssh2";
 import { randomUUID } from "node:crypto";
 import { config } from "./config.js";
+import { runWithConcurrency } from "./parallel.js";
 
 const UNSAFE_PATTERN = /[;`$()&|><\n\r]/;
 function validateShellArg(value: string, label: string): void {
@@ -14,6 +15,8 @@ let gatewayClient: Client | null = null;
 let gatewayClientPromise: Promise<Client> | null = null;
 let isKinitDone = false;
 let kinitPromise: Promise<void> | null = null;
+let gatewaySftp: SFTPWrapper | null = null;
+let gatewaySftpPromise: Promise<SFTPWrapper> | null = null;
 
 const DEFAULT_COMMAND_TIMEOUT_SEC = 300;
 
@@ -43,6 +46,8 @@ function connectGateway(): Promise<Client> {
       .on("close", () => {
         gatewayClient = null;
         gatewayClientPromise = null;
+        gatewaySftp = null;
+        gatewaySftpPromise = null;
         isKinitDone = false;
         kinitPromise = null;
       })
@@ -167,13 +172,28 @@ export async function executeCommandStream(
   });
 }
 
+/** conn 은 현재 싱글톤 gatewayClient 여야 함. 다른 인스턴스 전달 시 cache 가 stale 해짐. */
 function getGatewaySftp(conn: Client): Promise<SFTPWrapper> {
-  return new Promise((resolve, reject) => {
+  if (gatewaySftp) return Promise.resolve(gatewaySftp);
+  if (gatewaySftpPromise) return gatewaySftpPromise;
+
+  gatewaySftpPromise = new Promise((resolve, reject) => {
     conn.sftp((err, sftp) => {
-      if (err) reject(new Error(`SFTP 세션 생성 실패: ${err.message}`));
-      else resolve(sftp);
+      if (err) {
+        gatewaySftpPromise = null;
+        reject(new Error(`SFTP 세션 생성 실패: ${err.message}`));
+        return;
+      }
+      gatewaySftp = sftp;
+      sftp.on("close", () => {
+        gatewaySftp = null;
+        gatewaySftpPromise = null;
+      });
+      resolve(sftp);
     });
   });
+
+  return gatewaySftpPromise;
 }
 
 // SFTP로 Gateway에 파일 쓰기 (Buffer 안전)
@@ -196,16 +216,49 @@ function sftpReadFile(sftp: SFTPWrapper, remotePath: string): Promise<Buffer> {
   });
 }
 
+/**
+ * 단일 호스트 업로드. 실패 시 throw.
+ * 내부 구현은 {@link uploadFileMulti} 에 위임해 파이프라인 로직 중복을 제거.
+ */
 export async function uploadFile(
   host: string,
   user: string,
   remotePath: string,
-  content: Buffer
-): Promise<{ stdout: string; stderr: string }> {
-  if (!isHostAllowed(host)) {
-    throw new Error(`허용되지 않은 호스트: ${host}`);
+  content: Buffer,
+): Promise<{ stderr: string }> {
+  const [result] = await uploadFileMulti([host], user, remotePath, content, 1);
+  if (!result.ok) {
+    throw new Error(result.error ?? "SCP 업로드 실패");
   }
+  return { stderr: result.stderr ?? "" };
+}
 
+export interface MultiUploadResult {
+  host: string;
+  ok: boolean;
+  stderr?: string;
+  error?: string;
+}
+
+/**
+ * 여러 호스트에 같은 파일을 배포한다.
+ *
+ * 구조: 로컬→gateway SFTP **1회** 로 공용 임시파일 작성, gateway→target scp 만
+ * `runWithConcurrency` 로 병렬 발사. 호스트 수만큼 payload 가 WAN 을 타지 않아
+ * 로컬 대역폭 비용이 1/N 으로 amortize 된다.
+ */
+export async function uploadFileMulti(
+  hosts: string[],
+  user: string,
+  remotePath: string,
+  content: Buffer,
+  concurrency: number,
+): Promise<MultiUploadResult[]> {
+  for (const host of hosts) {
+    if (!isHostAllowed(host)) {
+      throw new Error(`허용되지 않은 호스트: ${host}`);
+    }
+  }
   validateShellArg(user, "사용자명");
   validateShellArg(remotePath, "원격 경로");
 
@@ -218,26 +271,26 @@ export async function uploadFile(
   const tempFile = `/tmp/gw-ssh-upload-${Date.now()}-${randomUUID()}`;
 
   try {
-    // 1. Gateway에 임시파일 쓰기 (SFTP)
     const sftp = await getGatewaySftp(conn);
     await sftpWriteFile(sftp, tempFile, content);
 
-    // 2. Gateway -> Target 서버로 scp
-    const scpCommand = `scp -o StrictHostKeyChecking=no -o BatchMode=yes ${tempFile} ${user}@${host}:${remotePath}`;
-
-    if (process.env.DEBUG === "true") {
-      console.error(`[DEBUG] SCP 업로드: ${scpCommand}`);
-    }
-
-    const result = await execOnGateway(conn, scpCommand);
-
-    if (result.code !== 0) {
-      throw new Error(`SCP 실패 (code: ${result.code}): ${result.stderr}`);
-    }
-
-    return { stdout: result.stdout, stderr: result.stderr };
+    return await runWithConcurrency<string, MultiUploadResult>(hosts, concurrency, async (host) => {
+      const scpCommand = `scp -o StrictHostKeyChecking=no -o BatchMode=yes ${tempFile} ${user}@${host}:${remotePath}`;
+      if (process.env.DEBUG === "true") {
+        console.error(`[DEBUG] SCP 업로드: ${scpCommand}`);
+      }
+      try {
+        const result = await execOnGateway(conn, scpCommand);
+        if (result.code !== 0) {
+          return { host, ok: false, error: `SCP 실패 (code: ${result.code}): ${result.stderr}` };
+        }
+        return { host, ok: true, stderr: result.stderr };
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        return { host, ok: false, error: msg };
+      }
+    });
   } finally {
-    // 3. Gateway 임시파일 삭제
     await execOnGateway(conn, `rm -f ${tempFile}`).catch(() => {});
   }
 }
@@ -263,7 +316,6 @@ export async function downloadFile(
   const tempFile = `/tmp/gw-ssh-download-${Date.now()}-${randomUUID()}`;
 
   try {
-    // 1. Target 서버 -> Gateway로 scp
     const scpCommand = `scp -o StrictHostKeyChecking=no -o BatchMode=yes ${user}@${host}:${remotePath} ${tempFile}`;
 
     if (process.env.DEBUG === "true") {
@@ -276,13 +328,11 @@ export async function downloadFile(
       throw new Error(`SCP 실패 (code: ${result.code}): ${result.stderr}`);
     }
 
-    // 2. Gateway 임시파일 읽기 (SFTP)
     const sftp = await getGatewaySftp(conn);
     const content = await sftpReadFile(sftp, tempFile);
 
     return { content, stderr: result.stderr };
   } finally {
-    // 3. Gateway 임시파일 삭제
     await execOnGateway(conn, `rm -f ${tempFile}`).catch(() => {});
   }
 }
@@ -310,6 +360,8 @@ export function disconnect(): void {
     gatewayClient = null;
   }
   gatewayClientPromise = null;
+  gatewaySftp = null;
+  gatewaySftpPromise = null;
   isKinitDone = false;
   kinitPromise = null;
 }

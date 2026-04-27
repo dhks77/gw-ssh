@@ -1,37 +1,12 @@
 import { Command } from "commander";
-import { executeCommandStream, isHostAllowed, disconnect } from "../ssh.js";
-import { config } from "../config.js";
+import { executeCommandStream, disconnect } from "../ssh.js";
 import { runWithConcurrency } from "../parallel.js";
-
-const DEFAULT_JOBS = 5;
+import { DEFAULT_JOBS, parseHosts, assertHostsAllowed, resolveUser } from "./common.js";
 
 interface HostResult {
   host: string;
   code: number;
   error?: string;
-}
-
-function parseHosts(raw: string): string[] {
-  return raw.split(",").map((h) => h.trim()).filter((h) => h.length > 0);
-}
-
-function assertHostsAllowed(hosts: string[]): void {
-  for (const host of hosts) {
-    if (!isHostAllowed(host)) {
-      const allowedList = config.hosts.allowedHosts.join(", ") || "(제한 없음)";
-      console.error(`허용되지 않은 호스트: ${host}\n허용된 호스트: ${allowedList}`);
-      process.exit(1);
-    }
-  }
-}
-
-function resolveUser(opt: string | undefined): string {
-  const user = opt || (config.serverInfo.user as string);
-  if (!user) {
-    console.error("사용자명이 필요합니다. -u 옵션 또는 config.json의 serverInfo.user를 설정하세요.");
-    process.exit(1);
-  }
-  return user;
 }
 
 function createLineWriter(host: string, sink: NodeJS.WriteStream): {
@@ -131,7 +106,7 @@ export function registerExecCommand(program: Command): void {
     .option("-j, --jobs <N>", "병렬 실행 동시성 (기본 5)", String(DEFAULT_JOBS))
     .option("--buffered", "병렬 모드에서 호스트별로 출력을 모아 종료 시 한 번에 출력")
     .action(async (hostArg: string, command: string, opts: { user?: string; jobs?: string; buffered?: boolean }) => {
-      const user = resolveUser(opts.user);
+      const user = resolveUser(opts);
       const hosts = parseHosts(hostArg);
 
       if (hosts.length === 0) {
@@ -141,14 +116,12 @@ export function registerExecCommand(program: Command): void {
       assertHostsAllowed(hosts);
 
       try {
-        // 단일 호스트: 기존 동작 유지 (prefix 없음, 직접 stream)
         if (hosts.length === 1) {
           const code = await runSingle(hosts[0], user, command);
           if (code !== 0) process.exit(code);
           return;
         }
 
-        // 병렬 모드
         const jobs = Math.max(1, Number(opts.jobs) || DEFAULT_JOBS);
         const runner = opts.buffered ? runBuffered : runPrefixed;
         const results = await runWithConcurrency(hosts, jobs, (host) => runner(host, user, command));
