@@ -20,6 +20,9 @@ let gatewaySftpPromise: Promise<SFTPWrapper> | null = null;
 
 const DEFAULT_COMMAND_TIMEOUT_SEC = 300;
 
+// LogLevel=ERROR: 대상 서버 sshd Banner(접속 경고문)가 stderr 로 섞이는 것을 차단
+const SSH_OPTS = "-o StrictHostKeyChecking=no -o BatchMode=yes -o LogLevel=ERROR";
+
 export function isHostAllowed(host: string): boolean {
   if (config.hosts.allowedHosts.length === 0) {
     return true;
@@ -145,7 +148,7 @@ export async function executeCommandStream(
 
   const timeoutSec = config.commandTimeoutSec ?? DEFAULT_COMMAND_TIMEOUT_SEC;
   const encoded = Buffer.from(command).toString('base64');
-  const sshCommand = `ssh -o StrictHostKeyChecking=no -o BatchMode=yes ${user}@${host} "echo ${encoded} | base64 --decode | timeout -s TERM --kill-after=5 ${timeoutSec} bash"`;
+  const sshCommand = `ssh ${SSH_OPTS} ${user}@${host} "echo ${encoded} | base64 --decode | timeout -s TERM --kill-after=5 ${timeoutSec} bash"`;
 
   if (process.env.DEBUG === "true") {
     console.error(`[DEBUG] 실행: ${sshCommand}`);
@@ -275,7 +278,7 @@ export async function uploadFileMulti(
     await sftpWriteFile(sftp, tempFile, content);
 
     return await runWithConcurrency<string, MultiUploadResult>(hosts, concurrency, async (host) => {
-      const scpCommand = `scp -o StrictHostKeyChecking=no -o BatchMode=yes ${tempFile} ${user}@${host}:${remotePath}`;
+      const scpCommand = `scp ${SSH_OPTS} ${tempFile} ${user}@${host}:${remotePath}`;
       if (process.env.DEBUG === "true") {
         console.error(`[DEBUG] SCP 업로드: ${scpCommand}`);
       }
@@ -316,7 +319,7 @@ export async function downloadFile(
   const tempFile = `/tmp/gw-ssh-download-${Date.now()}-${randomUUID()}`;
 
   try {
-    const scpCommand = `scp -o StrictHostKeyChecking=no -o BatchMode=yes ${user}@${host}:${remotePath} ${tempFile}`;
+    const scpCommand = `scp ${SSH_OPTS} ${user}@${host}:${remotePath} ${tempFile}`;
 
     if (process.env.DEBUG === "true") {
       console.error(`[DEBUG] SCP 다운로드: ${scpCommand}`);

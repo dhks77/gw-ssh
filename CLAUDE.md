@@ -54,6 +54,10 @@ Gateway sshd 의 `MaxSessions` 기본값(10) 을 초과하면 channel 열기 실
 4. command 를 base64 인코딩해 `ssh <target> "echo ... | base64 --decode | timeout ... bash"` 형태로 wrap — 셸 인젝션 방지 + 타임아웃 강제
 5. `conn.exec(sshCommand)` 로 nested ssh 를 gateway 에서 실행, stream 데이터를 callback 으로 릴레이
 
+nested ssh / scp 의 공통 옵션은 src/ssh.ts 의 SSH_OPTS 상수로 관리한다. LogLevel=ERROR 가 포함돼 있어 대상 서버 sshd 의 Banner(접속 경고문)가 stderr 로 섞이지 않는다.
+- ssh 클라이언트는 LogLevel 이 INFO 이상일 때만 배너를 출력하므로, 문자열 필터링 없이 소스에서 차단된다.
+- ssh/scp 자체 에러 메시지는 LogLevel=ERROR 에서도 그대로 출력된다.
+
 ### SCP pipeline (upload/download)
 
 SCP 는 `ssh2` 의 SFTP + shell `scp` 조합:
