@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import type { HostGroup } from "./hostInfo.js";
 
 interface GatewayConfig {
   host: string;
@@ -24,6 +25,7 @@ export interface Config {
   kerberos: KerberosConfig;
   hosts: HostConfig;
   serverInfo: ServerInfo;
+  hostGroups: Record<string, HostGroup>;
   commandTimeoutSec?: number;
 }
 
@@ -97,6 +99,7 @@ function loadConfig(): Config {
     kerberos: parseKerberosConfig(configFile),
     hosts: parseHostConfig(configFile),
     serverInfo: parseServerInfo(configFile),
+    hostGroups: (configFile.hostGroups as Record<string, HostGroup>) || {},
     commandTimeoutSec: configFile.commandTimeoutSec as number | undefined,
   };
 }

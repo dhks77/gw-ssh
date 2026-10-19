@@ -60,6 +60,14 @@ gw-ssh -c /path/to/config.json <command>
 | `commandTimeoutSec` | 원격 명령어 타임아웃 (초). GNU timeout으로 래핑 | 300 |
 | `serverInfo` | 서버 메타 정보 (user, logPaths 등) | {} |
 
+hostGroups 는 호스트 글롭 패턴(*, ?)을 키로 하는 메타 정보입니다. env(운영·알파·베타 등), description, 경로 등을 자유 형식으로 적고 gw-ssh info 가 읽습니다. 여러 서버군이 공유하는 자원(공유 스토리지 등)은 특정 그룹이 아니라 serverInfo 에 둡니다.
+
+```json
+"hostGroups": {
+  "server*": { "env": "운영", "description": "...", "logPaths": { "nginx": "/var/log/nginx" } }
+}
+```
+
 ### 환경변수
 
 | 변수 | 설명 |
@@ -161,6 +169,19 @@ gw-ssh download server1,server2 /var/log/app.log -o ~/Downloads/
 ```bash
 gw-ssh config
 ```
+
+### 호스트 정보 조회
+
+호스트에 매칭되는 hostGroups 항목과 serverInfo 를 함께 출력합니다. Gateway 에 접속하지 않습니다.
+
+```bash
+gw-ssh info server1
+gw-ssh info server1,server2   # CSV 가능
+```
+
+- 매칭 그룹은 구체적인 패턴(와일드카드 외 글자가 많은 순)부터 나열합니다
+- env 는 가장 구체적인 그룹의 값을 씁니다. 어느 그룹에도 없으면 "판별 불가 — 운영으로 간주" 로 표시합니다
+- 비밀번호 필드는 출력하지 않습니다
 
 ### 연결 테스트
 

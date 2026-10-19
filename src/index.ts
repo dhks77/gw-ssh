@@ -5,6 +5,7 @@ import { setConfigPath } from "./config.js";
 import { registerExecCommand } from "./commands/exec.js";
 import { registerScpCommands } from "./commands/scp.js";
 import { registerConfigCommands } from "./commands/config.js";
+import { registerInfoCommand } from "./commands/info.js";
 import { disconnect } from "./ssh.js";
 
 const program = new Command();
@@ -24,6 +25,7 @@ program
 registerExecCommand(program);
 registerScpCommands(program);
 registerConfigCommands(program);
+registerInfoCommand(program);
 
 process.on("SIGINT", () => {
   disconnect();

@@ -13,12 +13,16 @@ src/
 ├── index.ts                 # commander.js 엔트리, 서브커맨드 등록, 시그널 핸들러
 ├── config.ts                # config.json 로드, Proxy 기반 lazy-load
 ├── ssh.ts                   # 핵심: Gateway 연결, kinit, exec, SFTP, SCP
+├── hostInfo.ts              # hostGroups 글롭 매칭·env 판정 (순수 함수, 접속 없음)
+├── commands/info.ts         # info 서브커맨드 — 호스트별 매칭 hostGroups + serverInfo
 ├── commands/
 │   ├── exec.ts              # `exec` 서브커맨드
 │   ├── scp.ts               # `upload` / `download` 서브커맨드
 │   └── config.ts            # `config` / `status` 서브커맨드
 └── __tests__/
-    └── integration.test.ts  # Vitest 통합 테스트 (실제 gateway 필요)
+    ├── integration.test.ts  # Vitest 통합 테스트 (실제 gateway 필요)
+    ├── parallel.test.ts
+    └── hostInfo.test.ts     # 매칭 순서·env 판정 단위 테스트
 ```
 
 빌드: `tsc` → `dist/` 로 출력, `bin` 엔트리는 `dist/index.js`.
@@ -139,6 +143,13 @@ npm test    # vitest run
 
 - `DEBUG=true gw-ssh ...` 로 실행된 원격 명령 / SCP 명령을 stderr 로 확인 가능 (`src/ssh.ts` 의 `process.env.DEBUG === "true"` 게이트)
 - `gw-ssh status` 로 gateway 연결 + Kerberos 인증만 분리 테스트 가능
+
+## hostGroups
+
+접속 동작에는 쓰이지 않는 메타 정보이고, gw-ssh info 가 유일한 소비처다.
+
+- 패턴이 겹치면 와일드카드 외 글자 수가 많은 패턴이 먼저 온다
+- env 는 가장 구체적인 그룹의 값을 쓰고, 없으면 운영으로 간주한다 — 판별 불가 호스트를 운영 환경처럼 조심해서 다루도록
 
 ## 개발 규칙
 
